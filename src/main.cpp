@@ -58,7 +58,7 @@ int temperature;
 int currentState;
 
 void registerDevice();
-void downloadImage();
+// void downloadImage();
 bool tftRenderJpeg(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap);
 void uploadTemperature(double temperature);
 void saveUIDToSD(const char* uid);
@@ -68,6 +68,8 @@ int readDeviceIDFromSD();
 void mqttCallback(char* topic, byte* payload, unsigned int len);
 boolean mqttConnect();
 void mqttLoop();
+void reconnectWIFI();
+void mqttReconnect();
 void readTemperature();
 void setupStepper();
 void rotateStepper(int direction);
@@ -118,37 +120,6 @@ void setup() {
     {
         rotateStepper(1); // Rotate the stepper motor
     }
-    
-
-    // if (analogRead(1) == HIGH) {
-    //     digitalWrite(2, HIGH);
-    //     rotateStepper(1);
-    //     digitalWrite(2, LOW);
-    // }
-    
-
-    // rotateStepperToState(1,3);
-
-    // tft.init();
-    // tft.setRotation(2);
-    // //tft.setSwapBytes(true);
-    // tft.fillScreen(TFT_BLACK);
-
-    // tft.setTextColor(TFT_WHITE);
-    // tft.setTextSize(4); 
-
-    // pinMode(4, OUTPUT);
-    // digitalWrite(4, HIGH);
-
-    // Initialize TFT screen
-    // tft.begin();
-    // // tft.setRotation(1); // Adjust rotation as per your setup
-    // tft.fillScreen(TFT_BLACK);
-
-    // Initialize TJpg_Decoder
-    // TJpgDec.setJpgScale(1); // No scaling (1:1)
-    // TJpgDec.setCallback(tftRenderJpeg); // Set the render function
-    // TJpgDec.setSwapBytes(true); // For 16-bit colors
 
     // Initialize SD card
     if (!SD.begin(SD_CS_PIN)) {
@@ -185,14 +156,12 @@ void setup() {
 }
 
 void loop() {
-    tft.pushImage(0,0,screenW, screenH, qrCode ); 
- tft.setCursor(120, 120);
-    Serial.println("done");
-
-    // readTemperature();
-    // mqttLoop();
-    // // reconnectWIFI();
-    // delay(1000);
+    mqttLoop();
+    readTemperature();
+    if (WiFi.status() != WL_CONNECTED) {
+        reconnectWIFI();
+    }
+    delay(10);
 }
 
 void registerDevice() {
@@ -246,58 +215,58 @@ void registerDevice() {
 
 
 // TODO: fix this function
-void downloadImage() {
-    HTTPClient http;
-    String qrCodeUrl = "http://135.237.185.240/api/device/624bf917-ebda-4961-bdaf-5ffd5485ea92/qr-code";
-    // String qrCodeUrl = BaseUrl + "/device/" + DeviceUID + "/qr-code";
+// void downloadImage() {
+//     HTTPClient http;
+//     String qrCodeUrl = "http://135.237.185.240/api/device/624bf917-ebda-4961-bdaf-5ffd5485ea92/qr-code";
+//     // String qrCodeUrl = BaseUrl + "/device/" + DeviceUID + "/qr-code";
 
-    qrCodeUrl.trim(); // Clean the URL
+//     qrCodeUrl.trim(); // Clean the URL
 
-    String contentType = http.header("Content-Type");
-    Serial.println("Content-Type: " + contentType);
+//     String contentType = http.header("Content-Type");
+//     Serial.println("Content-Type: " + contentType);
 
 
-    Serial.print("Fetching image from: ");
-    Serial.println(qrCodeUrl);
+//     Serial.print("Fetching image from: ");
+//     Serial.println(qrCodeUrl);
 
-    http.begin(qrCodeUrl); // Start connection to the image URL
-    int httpCode = http.GET(); // Send GET request
+//     http.begin(qrCodeUrl); // Start connection to the image URL
+//     int httpCode = http.GET(); // Send GET request
 
-    if (httpCode == 200) { // HTTP 200 means the request was successful
-        Serial.println("Image fetched successfully");
+//     if (httpCode == 200) { // HTTP 200 means the request was successful
+//         Serial.println("Image fetched successfully");
 
-        // Open a file on the SD card to write the image
-        File imageFile = SD.open("/qr-code.png", FILE_WRITE);
-        if (!imageFile) {
-            Serial.println("Failed to open file for writing");
-            return;
-        }
+//         // Open a file on the SD card to write the image
+//         File imageFile = SD.open("/qr-code.png", FILE_WRITE);
+//         if (!imageFile) {
+//             Serial.println("Failed to open file for writing");
+//             return;
+//         }
 
-        // Get the image content and save it to the SD card
-        WiFiClient *stream = http.getStreamPtr();
-        byte buffer[128]; // Buffer to store incoming data
-        int bytesRead;
-        int totalBytesRead = 0;
-        while ((bytesRead = stream->read(buffer, sizeof(buffer))) > 0) {
-            imageFile.write(buffer, bytesRead); // Write data to file
-            totalBytesRead += bytesRead;
-        }
+//         // Get the image content and save it to the SD card
+//         WiFiClient *stream = http.getStreamPtr();
+//         byte buffer[128]; // Buffer to store incoming data
+//         int bytesRead;
+//         int totalBytesRead = 0;
+//         while ((bytesRead = stream->read(buffer, sizeof(buffer))) > 0) {
+//             imageFile.write(buffer, bytesRead); // Write data to file
+//             totalBytesRead += bytesRead;
+//         }
 
-        // Close the file after writing
-        imageFile.close();
-        Serial.println("Image saved to SD card");
+//         // Close the file after writing
+//         imageFile.close();
+//         Serial.println("Image saved to SD card");
 
-        // Log the total number of bytes downloaded
-        Serial.print("Total bytes downloaded: ");
-        Serial.println(totalBytesRead);
+//         // Log the total number of bytes downloaded
+//         Serial.print("Total bytes downloaded: ");
+//         Serial.println(totalBytesRead);
 
-    } else {
-        Serial.println("Failed to fetch image, HTTP code: " + String(httpCode));
-    }
+//     } else {
+//         Serial.println("Failed to fetch image, HTTP code: " + String(httpCode));
+//     }
 
-    // Close the HTTP connection
-    http.end();
-}
+//     // Close the HTTP connection
+//     http.end();
+// }
 
 
 void saveUIDToSD(const char* uid) {
@@ -505,9 +474,25 @@ boolean mqttConnect() {
   return mqtt.connected();
 }
 
+void mqttReconnect() {
+  while (!mqtt.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (mqtt.connect(g_szDeviceId)) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqtt.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
 void mqttLoop() {
   if (!mqtt.connected()) {
-    mqttConnect();
+    mqttReconnect();
   }
   mqtt.loop();
 }
@@ -561,39 +546,39 @@ void setupStepper() {
 
 // rotate the stepper motor clockwise continuously
 void rotateStepper(int direction) {
-  int currentVal = digitalRead(1);
-  do
-  {
-    while (currentVal == LOW)
-    {
-      if (stepper.distanceToGo() == 0) {
-        stepper.disableOutputs();  // Disable to reduce heat when idle
-        // delay(1000);                // Small delay before next move
-        stepper.move(91 * steps_per_mm * direction);  // Move 100 mm forward
-        stepper.enableOutputs();   // Enable outputs for next move
-      }
-      stepper.run();  // Execute stepper movement
-      // delay(10);
-      currentVal = digitalRead(1); // Update currentVal inside the loop
-      // Serial.println(currentVal);
-    }
-    if (stepper.distanceToGo() == 0) {
-        stepper.disableOutputs();  // Disable to reduce heat when idle
-        // delay(1000);                // Small delay before next move
-        stepper.move(91 * steps_per_mm * direction);  // Move 100 mm forward
-        stepper.enableOutputs();   // Enable outputs for next move
-    }
-    stepper.run();  // Execute stepper movement
-    // delay(10);
-    currentVal = digitalRead(1); // Update currentVal inside the loop
-    // Serial.println(currentVal);
-  } while (currentVal == HIGH);
+    int currentVal = digitalRead(1);
+    unsigned long startTime = millis(); // Record the start time
+    const unsigned long timeout = 5000; // Timeout after 5 seconds
 
-  // stepper.stop(); // Stop the stepper motor
-  stepper.move(0); // Stop the stepper motor
+    do {
+        while (currentVal == LOW && (millis() - startTime) < timeout) {
+            if (stepper.distanceToGo() == 0) {
+                stepper.disableOutputs();
+                stepper.move(91 * steps_per_mm * direction);
+                stepper.enableOutputs();
+            }
+            stepper.run();
+            currentVal = digitalRead(1);
+        }
 
-  
+        if (stepper.distanceToGo() == 0) {
+            stepper.disableOutputs();
+            stepper.move(91 * steps_per_mm * direction);
+            stepper.enableOutputs();
+        }
+        stepper.run();
+        currentVal = digitalRead(1);
+
+        // Check for timeout
+        if (millis() - startTime >= timeout) {
+            Serial.println("rotateStepper timed out!");
+            break;
+        }
+    } while (currentVal == HIGH);
+
+    stepper.move(0); // Stop the stepper motor
 }
+
 
 void rotateServo() {
     servo.write(180);
@@ -628,5 +613,8 @@ int findShortestPath(int current, int target, int totalContainers) {
 void rotateStepperToState(int direction, int steps) {
   for (int i = 0; i < steps; i++) {
     rotateStepper(direction);
+    rotateStepper(direction);   //TODO: remove this line when sensor is fixed
+    delay(10);
+    rotateServo();
   }
 }
